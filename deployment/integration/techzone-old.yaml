@@ -1,0 +1,295 @@
+- hosts: on-prem-management-host-0, burst-management-host-0
+  tasks:
+    - name: Gather data
+      ansible.builtin.setup:      
+      delegate_facts: true
+- hosts: on-prem-management-host-0
+  tasks:
+    - name: Get cluster name
+      ansible.builtin.shell: lsid | grep "My cluster name" | cut -d " "  -f5
+      register: command_output
+    - name: Save cluster name
+      ansible.builtin.set_fact:
+        cluster_name: "{{ command_output.stdout }}"
+- hosts: burst-management-host-0
+  tasks:
+    - name: Get cluster name
+      ansible.builtin.shell: lsid | grep "My cluster name" | cut -d " "  -f5
+      register: command_output
+    - name: Save cluster name
+      ansible.builtin.set_fact:
+        cluster_name: "{{ command_output.stdout }}"
+- hosts: on-prem-management-host-0, burst-management-host-0
+  tasks: 
+    - name: Add Cluser block
+      ansible.builtin.blockinfile:
+        path: /opt/ibm/lsf/conf/lsf.cluster.{{ hostvars[inventory_hostname]['cluster_name'] }}
+        backup: yes
+        block: |
+          Begin Cluster
+          ClusterName Servers
+          {{ hostvars['on-prem-management-host-0']['cluster_name'] }} {{ hostvars['on-prem-management-host-0']['ansible_nodename'] }}
+          {{ hostvars['burst-management-host-0']['cluster_name'] }} {{ hostvars['burst-management-host-0']['ansible_nodename'] }}
+          End Cluster
+          
+- hosts: on-prem-management-host-0, burst-management-host-0
+  tasks: 
+    - name: Add Remote Cluser block for OnPremCluster
+      ansible.builtin.blockinfile:
+        path: /opt/ibm/lsf/conf/lsf.shared
+        backup: yes
+        block: |
+          Begin RemoteClusters
+          CLUSTERNAME EQUIV
+          {{ hostvars['burst-management-host-0']['cluster_name'] }}  Y
+          End RemoteClusters
+      when: inventory_hostname == "on-prem-management-host-0"
+    - name: Add Remote Cluser block for BurstCluster
+      ansible.builtin.blockinfile:
+        path: /opt/ibm/lsf/conf/lsf.shared
+        backup: yes
+        block: |
+          Begin RemoteClusters
+          CLUSTERNAME EQUIV
+          {{ hostvars['on-prem-management-host-0']['cluster_name'] }}  Y
+          End RemoteClusters
+      when: inventory_hostname == "burst-management-host-0"
+- hosts: on-prem-management-host-0
+  tasks: 
+    - name: Add Queues block
+      ansible.builtin.blockinfile:
+        path: /opt/ibm/lsf/conf/lsbatch/{{ hostvars[inventory_hostname]['cluster_name'] }}/configdir/lsb.queues
+        backup: yes
+        block: |
+          Begin Queue
+          QUEUE_NAME      = burst_send
+          PRIORITY        = 30
+          QJOB_LIMIT      = 5
+          SNDJOBS_TO      = onprem_recv@{{ hostvars['burst-management-host-0']['cluster_name'] }}
+          HOSTS           = none
+          MAX_RSCHED_TIME = infinit
+          DESCRIPTION     = Send jobs to {{ hostvars['burst-management-host-0']['cluster_name'] }}
+          End Queue
+
+          Begin Queue
+          QUEUE_NAME      = burst_recv
+          PRIORITY        = 30
+          QJOB_LIMIT      = 5
+          RCVJOBS_FROM    = {{ hostvars['burst-management-host-0']['cluster_name'] }}
+          HOSTS           = {{ hostvars['on-prem-management-host-0']['ansible_nodename'] }}
+          DESCRIPTION     = Receive jobs from {{ hostvars['burst-management-host-0']['cluster_name'] }}
+          End Queue
+
+          Begin Queue
+          QUEUE_NAME=send_to_all
+          SNDJOBS_TO=recv_q@allclusters
+          PRIORITY=30
+          NICE=20
+          End Queue    
+                
+- hosts: burst-management-host-0
+  tasks: 
+    - name: Add Queues block
+      ansible.builtin.blockinfile:
+        path: /opt/ibm/lsf/conf/lsbatch/{{ hostvars[inventory_hostname]['cluster_name'] }}/configdir/lsb.queues
+        backup: yes
+        block: |
+          Begin Queue
+          QUEUE_NAME      = onprem_send
+          SNDJOBS_TO      = burst_recv@{{ hostvars['on-prem-management-host-0']['cluster_name'] }}
+          PRIORITY        = 30
+          NICE            = 20
+          HOSTS           = none
+          MAX_RSCHED_TIME = infinit
+          DESCRIPTION     = Send jobs to {{ hostvars['on-prem-management-host-0']['cluster_name'] }}
+          End Queue
+
+          Begin Queue
+          QUEUE_NAME      = onprem_recv
+          RCVJOBS_FROM    = {{ hostvars['on-prem-management-host-0']['cluster_name'] }}
+          PRIORITY        = 30
+          NICE            = 20
+          HOSTS           = {{ hostvars['burst-management-host-0']['ansible_nodename'] }}
+          DESCRIPTION     = Receive jobs from {{ hostvars['on-prem-management-host-0']['cluster_name'] }}
+          End Queue
+
+          Begin Queue
+          QUEUE_NAME=recv_q
+          RCVJOBS_FROM={{ hostvars['on-prem-management-host-0']['cluster_name'] }}
+          PRIORITY=30
+          NICE=20
+          RC_HOSTS=all
+          End Queue
+- hosts: on-prem-management-host-0, burst-management-host-0
+  tasks: 
+    - name: Copy aspera rpm
+      ansible.builtin.copy:
+        src: /Users/andaluri/projects/software/ibm-aspera-hste-4.4.1.95-linux-64-release.rpm
+        dest: /home/lsfadmin
+        force: false
+    - name: Copy aspera pgp
+      ansible.builtin.copy:
+        src: /Users/andaluri/projects/software/public-key.pgp
+        dest: /home/lsfadmin        
+        force: false
+    - name: Import aspera key 
+      ansible.builtin.rpm_key:
+        state: present
+        key: /home/lsfadmin/public-key.pgp
+    - name: Install aspera
+      ansible.builtin.yum:
+        name: /home/lsfadmin/ibm-aspera-hste-4.4.1.95-linux-64-release.rpm
+        state: present
+    - name: Copy aspera license
+      ansible.builtin.copy:
+        src: /Users/andaluri/projects/software/aspera-eval-licenses-2023-Apr/81368-AsperaEndpoint-unlim.eval.aspera-license
+        dest: /opt/aspera/etc/aspera-license
+        force: false
+      when: inventory_hostname == "on-prem-management-host-0"
+    - name: Copy aspera license
+      ansible.builtin.copy:
+        src: /Users/andaluri/projects/software/aspera-eval-licenses-2023-Apr/81369-AsperaEndpoint-unlim.eval.aspera-license
+        dest: /opt/aspera/etc/aspera-license
+        force: false        
+      when: inventory_hostname == "burst-management-host-0"        
+    - name: Check ascp license expiry
+      ansible.builtin.shell: >
+        licenseExpiryDate=$(ascp -A | grep "Expiration date:" | cut -d " " -f10-)
+        licenseExpiryEpoch=$(date --date "$licenseExpires" +'%s')
+        todaysDateEpoch=$(date +'%s')
+        licenseStatus="FAIL"
+        if [[ $licenseExpiryEpoch -gt $todaysDateEpoch ]]; then
+          licenseStatus="OK"
+        fi
+        echo $licenseStatus
+      register: command_output
+      failed_when: >
+        "FAIL" in command_output.stdout
+    - name: Set sshd parameters
+      ansible.builtin.lineinfile:
+        dest: /etc/ssh/sshd_config 
+        regexp: "^PubkeyAuthentication"
+        line: "PubkeyAuthentication yes"
+    - name: Enable services
+      ansible.builtin.service:
+        name: "{{ item }}"
+        enabled: yes
+      loop:
+        - NetworkManager
+        - NetworkManager-wait-online.service
+    - name: Restart sshd and aspera
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - sshd
+        - asperanoded
+- hosts: on-prem-management-host-0, burst-management-host-0
+  tasks: 
+    - name: Copy LSF data manager 10.1 Fixpack 12
+      ansible.builtin.copy:
+        src: /Users/andaluri/projects/software/lsf10.1_data_mgr-lnx310-x64-600489.tar.Z
+        dest: /opt/ibm/lsf/10.1/install
+        force: false 
+    - name: Install LSF data manager 10.1 Fixpack 12
+      ansible.builtin.shell: >
+        . /opt/ibm/lsf/conf/profile.lsf
+        lsadmin limshutdown {{ hostvars[inventory_hostname]['ansible_nodename'] }}
+        bdata admin shutdown
+        cd /opt/ibm/lsf/10.1/install
+        ./patchinstall lsf10.1_data_mgr-lnx310-x64-600489.tar.Z
+        lsadmin limstartup {{ hostvars[inventory_hostname]['ansible_nodename'] }}
+    - name: Check LSF_DATA_PORT set
+      ansible.builtin.shell: grep -c "^LSF_DATA_PORT" /opt/ibm/lsf/conf/lsf.conf || true
+      register: lsf_data_port_from_conf
+    - name: Find LSF dmd port
+      ansible.builtin.shell: netstat -anlp | grep dmd | grep LISTEN | cut -d":" -f2 | cut -d " " -f 1
+      register: lsf_data_port_from_netstat
+    - name: Save LSF Data port
+      ansible.builtin.set_fact:
+        lsf_data_port: "{{ lsf_data_port_from_netstat.stdout }}"
+    - name: Set LSF_DATA_PORT only when doesn't exist
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.conf 
+        regexp: "^LSF_DATA_PORT"
+        line: "LSF_DATA_PORT={{ hostvars[inventory_hostname]['lsf_data_port'] }}"
+      when: lsf_data_port_from_conf==0
+    - name: Check LSF_DATA_HOST set
+      ansible.builtin.shell: grep -c "^LSF_DATA_HOST" /opt/ibm/lsf/conf/lsf.conf || true
+      register: lsf_data_host_from_conf      
+    - name: Set LSF_DATA_HOST only when doesn't exist
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.conf
+        regexp: "^LSF_DATA_HOSTS"
+        line: "LSF_DATA_HOSTS={{ hostvars[inventory_hostname]['ansible_nodename'] }}"
+      when: lsf_data_host_from_conf==0
+    - name: Check ADMINS set
+      ansible.builtin.shell: grep -c "^ADMINS" /opt/ibm/lsf/conf/lsf.conf.{{ hostvars[inventory_hostname]['cluster_name'] }} || true
+      register: lsf_admins_exists
+    - name: Check STAGING_AREA set
+      ansible.builtin.shell: grep -c "^STAGING_AREA" /opt/ibm/lsf/conf/lsf.conf.{{ hostvars[inventory_hostname]['cluster_name'] }} || true
+      register: lsf_staging_area_exists
+    - name: Set ADMINS only when doesn't exist
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.conf.{{ hostvars[inventory_hostname]['cluster_name'] }} 
+        regexp: "^ADMINS"
+        line: "ADMINS = lsfadmin"
+      when: lsf_admins_exists==0
+    - name: Set STAGING_AREA only when doesn't exist
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.conf 
+        regexp: "^STAGING_AREA"
+        line: "STAGING_AREA = /opt/ibm/lsf/das_staging_area"
+      when: lsf_staging_area_exists==0    
+- hosts: on-prem-management-host-0
+  tasks:     
+    - name: Add Remote datamanagers
+      ansible.builtin.blockinfile:
+        path: /opt/ibm/lsf/conf/lsf.conf.{{ hostvars[inventory_hostname]['cluster_name'] }} 
+        backup: yes
+        block: |
+          Begin RemoteDataManagers
+          CLUSTERNAME             SERVERS         PORT
+          {{ hostvars['burst-management-host-0']['cluster_name'] }}               {{ hostvars['burst-management-host-0']['ansible_nodename'] }}           {{ hostvars[inventory_hostname]['lsf_data_port'] }}
+          End RemoteDataManagers
+        when: inventory_hostname == "on-prem-management-host-0"
+    - name: Add Remote datamanagers
+      ansible.builtin.blockinfile:
+        path: /opt/ibm/lsf/conf/lsf.conf.{{ hostvars[inventory_hostname]['cluster_name'] }} 
+        backup: yes
+        block: |
+          Begin RemoteDataManagers
+          CLUSTERNAME             SERVERS         PORT
+          {{ hostvars['on-prem-management-host-0']['cluster_name'] }}               {{ hostvars['on-prem-management-host-0']['ansible_nodename'] }}           {{ hostvars[inventory_hostname]['lsf_data_port'] }}
+          End RemoteDataManagers
+        when: inventory_hostname == "burst-management-host-0"    
+    - name: Check a queue exists with DATA_TRANSFER set 
+      ansible.builtin.shell: grep -c "^DATA_TRANSFER" /opt/ibm/lsf/conf/lsbatch/{{ hostvars[inventory_hostname]['cluster_name'] }}/configdir/lsb.queues || true
+      register: lsf_data_xfer_exists
+    - name: Add data xfer queue
+      ansible.builtin.blockinfile:
+        path: /opt/ibm/lsf/conf/lsbatch/{{ hostvars[inventory_hostname]['cluster_name'] }}/configdir/lsb.queues 
+        backup: yes
+        block: |
+          Begin Queue
+          QUEUE_NAME=das_q
+          DATA_TRANSFER=Y
+          HOSTS=all
+          RES_REQ=type==any
+          End Queue
+        when: lsf_data_xfer_exists==0   
+    - name: Change scp to ascp
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.conf 
+        regexp: "^LSF_DATA_SCP_CMD"
+        line: "LSF_DATA_SCP_CMD = /usr/bin/ascp"        
+    - name: LSF Restart
+      ansible.builtin.expect:
+        command: lsfrestart
+        responses:
+          Question:
+            - n
+            - y
+            - y
+
+

@@ -1,0 +1,212 @@
+- hosts: on-prem-management-host-0, burst-management-host-0
+  tasks:
+    - name: Gather data
+      ansible.builtin.setup:      
+      delegate_facts: true
+- hosts: on-prem-management-host-0
+  tasks:
+    - name: Get cluster name
+      ansible.builtin.shell: lsid | grep "My cluster name" | cut -d " "  -f5
+      register: command_output
+    - name: Save cluster name
+      ansible.builtin.set_fact:
+        cluster_name: "{{ command_output.stdout }}"
+- hosts: burst-management-host-0
+  tasks:
+    - name: Get cluster name
+      ansible.builtin.shell: lsid | grep "My cluster name" | cut -d " "  -f5
+      register: command_output
+    - name: Save cluster name
+      ansible.builtin.set_fact:
+        cluster_name: "{{ command_output.stdout }}"
+- hosts: on-prem-management-host-0
+  tasks:
+    - name: Add /etc/hosts
+      ansible.builtin.lineinfile:
+        dest: /etc/hosts
+        regexp: "^{{ hostvars['burst-management-host-0']['ansible_default_ipv4']['address'] }}"
+        line: "{{ hostvars['burst-management-host-0']['ansible_default_ipv4']['address'] }} {{ hostvars['burst-management-host-0']['ansible_nodename'] }}"
+- hosts: burst-management-host-0
+  tasks:
+    - name: Add /etc/hosts
+      ansible.builtin.lineinfile:
+        dest: /etc/hosts
+        regexp: "^{{ hostvars['on-prem-management-host-0']['ansible_default_ipv4']['address'] }}"
+        line: "{{ hostvars['on-prem-management-host-0']['ansible_default_ipv4']['address'] }} {{ hostvars['on-prem-management-host-0']['ansible_nodename'] }}"
+- hosts: on-prem-management-host-0
+  tasks:
+    - name: Change CluserName line
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.shared
+        regexp: "^ClusterName*"
+        line: "ClusterName Servers"
+    - name: Change OnPrem Cluser
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.shared
+        regexp: "^{{ hostvars['on-prem-management-host-0']['cluster_name'] }}"
+        line: "{{ hostvars['on-prem-management-host-0']['cluster_name'] }} {{ hostvars['on-prem-management-host-0']['ansible_nodename'] }}"
+    - name: Add Burst Cluser
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.shared
+        line: "{{ hostvars['burst-management-host-0']['cluster_name'] }} {{ hostvars['burst-management-host-0']['ansible_nodename'] }}"
+        insertbefore: "^End Cluster"
+- hosts: burst-management-host-0
+  tasks:
+    - name: Change CluserName line
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.shared
+        regexp: "^ClusterName*"
+        line: "ClusterName Servers"
+    - name: Change Burst Cluser
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.shared
+        regexp: "^{{ hostvars['burst-management-host-0']['cluster_name'] }}"
+        line: "{{ hostvars['burst-management-host-0']['cluster_name'] }} {{ hostvars['burst-management-host-0']['ansible_nodename'] }}"
+    - name: Add OnPrem Cluser
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.shared
+        line: "{{ hostvars['on-prem-management-host-0']['cluster_name'] }} {{ hostvars['on-prem-management-host-0']['ansible_nodename'] }}"
+        insertbefore: "^End Cluster"
+- hosts: on-prem-management-host-0, burst-management-host-0
+  tasks:
+    - name: Reconfig and restart 
+      ansible.builtin.shell: >
+        lsadmin reconfig -f
+        badmin mbdrestart
+- hosts: on-prem-management-host-0, burst-management-host-0
+  tasks: 
+    - name: Copy aspera rpm
+      ansible.builtin.copy:
+        src: /Users/andaluri/projects/software/ibm-aspera-hste-4.4.1.95-linux-64-release.rpm
+        dest: /home/lsfadmin
+        force: false
+    - name: Copy aspera pgp
+      ansible.builtin.copy:
+        src: /Users/andaluri/projects/software/public-key.pgp
+        dest: /home/lsfadmin        
+        force: false
+    - name: Import aspera key 
+      ansible.builtin.rpm_key:
+        state: present
+        key: /home/lsfadmin/public-key.pgp
+    - name: Install aspera
+      ansible.builtin.yum:
+        name: /home/lsfadmin/ibm-aspera-hste-4.4.1.95-linux-64-release.rpm
+        state: present
+    - name: Copy aspera license
+      ansible.builtin.copy:
+        src: /Users/andaluri/projects/software/aspera-eval-licenses-2023-Apr/81368-AsperaEndpoint-unlim.eval.aspera-license
+        dest: /opt/aspera/etc/aspera-license
+        force: false
+      when: inventory_hostname == "on-prem-management-host-0"
+    - name: Copy aspera license
+      ansible.builtin.copy:
+        src: /Users/andaluri/projects/software/aspera-eval-licenses-2023-Apr/81369-AsperaEndpoint-unlim.eval.aspera-license
+        dest: /opt/aspera/etc/aspera-license
+        force: false        
+      when: inventory_hostname == "burst-management-host-0"        
+    - name: Check ascp license expiry
+      ansible.builtin.shell: >
+        licenseExpiryDate=$(ascp -A | grep "Expiration date:" | cut -d " " -f10-)
+        licenseExpiryEpoch=$(date --date "$licenseExpires" +'%s')
+        todaysDateEpoch=$(date +'%s')
+        licenseStatus="FAIL"
+        if [[ $licenseExpiryEpoch -gt $todaysDateEpoch ]]; then
+          licenseStatus="OK"
+        fi
+        echo $licenseStatus
+      register: command_output
+      failed_when: >
+        "FAIL" in command_output.stdout
+    - name: Set sshd parameters
+      ansible.builtin.lineinfile:
+        dest: /etc/ssh/sshd_config 
+        regexp: "^PubkeyAuthentication"
+        line: "PubkeyAuthentication yes"
+    - name: Enable services
+      ansible.builtin.service:
+        name: "{{ item }}"
+        enabled: yes
+      loop:
+        - NetworkManager
+        - NetworkManager-wait-online.service
+    - name: Restart sshd and aspera
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - sshd
+        - asperanoded
+- hosts: on-prem-management-host-0, burst-management-host-0
+  tasks: 
+    - name: Copy LSF data manager 10.1 Fixpack 12
+      ansible.builtin.copy:
+        src: /Users/andaluri/projects/software/lsf10.1_data_mgr-lnx310-x64-600489.tar.Z
+        dest: /opt/ibm/lsf/10.1/install
+        force: false 
+    - name: Install LSF data manager 10.1 Fixpack 12
+      ansible.builtin.shell: >
+        . /opt/ibm/lsf/conf/profile.lsf
+        lsadmin limshutdown {{ hostvars[inventory_hostname]['ansible_nodename'] }}
+        bdata admin shutdown
+        cd /opt/ibm/lsf/10.1/install
+        ./patchinstall lsf10.1_data_mgr-lnx310-x64-600489.tar.Z
+        lsadmin limstartup {{ hostvars[inventory_hostname]['ansible_nodename'] }}
+    - name: Check LSF_DATA_PORT set
+      ansible.builtin.shell: grep -c "^LSF_DATA_PORT" /opt/ibm/lsf/conf/lsf.conf || true
+      register: lsf_data_port_from_conf
+    - name: Find LSF dmd port
+      ansible.builtin.shell: netstat -anlp | grep dmd | grep LISTEN | cut -d":" -f2 | cut -d " " -f 1
+      register: lsf_data_port_from_netstat
+    - name: Save LSF Data port
+      ansible.builtin.set_fact:
+        lsf_data_port: "{{ lsf_data_port_from_netstat.stdout }}"
+    - name: Set LSF_DATA_PORT only when doesn't exist
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.conf 
+        regexp: "^LSF_DATA_PORT"
+        line: "LSF_DATA_PORT={{ hostvars[inventory_hostname]['lsf_data_port'] }}"
+      when: lsf_data_port_from_conf==0
+    - name: Check LSF_DATA_HOST set
+      ansible.builtin.shell: grep -c "^LSF_DATA_HOST" /opt/ibm/lsf/conf/lsf.conf || true
+      register: lsf_data_host_from_conf      
+    - name: Set LSF_DATA_HOST only when doesn't exist
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.conf
+        regexp: "^LSF_DATA_HOSTS"
+        line: "LSF_DATA_HOSTS={{ hostvars[inventory_hostname]['ansible_nodename'] }}"
+      when: lsf_data_host_from_conf==0
+    - name: Check ADMINS set
+      ansible.builtin.shell: grep -c "^ADMINS" /opt/ibm/lsf/conf/lsf.conf.{{ hostvars[inventory_hostname]['cluster_name'] }} || true
+      register: lsf_admins_exists
+    - name: Check STAGING_AREA set
+      ansible.builtin.shell: grep -c "^STAGING_AREA" /opt/ibm/lsf/conf/lsf.conf.{{ hostvars[inventory_hostname]['cluster_name'] }} || true
+      register: lsf_staging_area_exists
+    - name: Set ADMINS only when doesn't exist
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.conf.{{ hostvars[inventory_hostname]['cluster_name'] }} 
+        regexp: "^ADMINS"
+        line: "ADMINS = lsfadmin"
+      when: lsf_admins_exists==0
+    - name: Set STAGING_AREA only when doesn't exist
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.conf 
+        regexp: "^STAGING_AREA"
+        line: "STAGING_AREA = /opt/ibm/lsf/das_staging_area"
+      when: lsf_staging_area_exists==0    
+- hosts: on-prem-management-host-0, burst-management-host-0
+  tasks:           
+    - name: Change scp to ascp
+      ansible.builtin.lineinfile:
+        dest: /opt/ibm/lsf/conf/lsf.conf 
+        regexp: "^LSF_DATA_SCP_CMD"
+        line: "LSF_DATA_SCP_CMD=/usr/bin/ascp"        
+    - name: LSF Restart
+      ansible.builtin.shell: >
+        lsfrestart -f
+        RHEL_MAJOR=`uname -r | cut -d"." -f6 | cut -d "_" -f1 | tr -dc '0-9'`
+        dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-${RHEL_MAJOR}.noarch.rpm --nogpgcheck
+        /usr/bin/crb enable
+        yum install -y stress
+
+

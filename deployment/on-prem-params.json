@@ -1,0 +1,18 @@
+{
+    "name": "TechZone OnPrem LSF cluster",
+    "location": "us-south",
+    "repo" : "https://github.ibm.com/andaluri/techzone-lsf-v2.1.0/tree/main",
+    "cluster_name" : "OnPremCluster",
+    "cluster_prefix" : "on-prem",
+    "zone": "us-south-1",
+    "ssh_key_name" : "lsf-on-prem",
+    "vpc_name": "tz-test-1",
+    "resource_group" : "tz-test",
+    "enable_app_center": "true",
+    "hyperthreading_enabled" : "false",
+    "management_node_count": "1",
+    "worker_node_min_count" : "1",
+    "worker_node_max_count" : "1",
+    "volume_capacity" : "300",
+    "volume_iops" : "3000"
+}

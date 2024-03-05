@@ -1,0 +1,28 @@
+Host on-prem-login
+   HostName 150.240.67.19
+   User root
+   IdentityFile ~/.ssh/lsf-on-prem
+Host on-prem-management-host-0
+   HostName 10.240.0.21
+   User root
+   IdentityFile ~/.ssh/lsf-on-prem
+Host on-prem-storage-0
+   HostName 10.240.0.20
+   User root
+   IdentityFile ~/.ssh/lsf-on-prem
+Host on-prem-worker-0
+   HostName 10.240.0.22
+   User root
+   IdentityFile ~/.ssh/lsf-on-prem
+Host burst-login
+   HostName 52.116.198.161
+   User root
+   IdentityFile ~/.ssh/lsf-burst
+Host burst-management-host-0
+   HostName 10.240.65.21
+   User root
+   IdentityFile ~/.ssh/lsf-burst
+Host burst-storage-0
+   HostName 10.240.65.20
+   User root
+   IdentityFile ~/.ssh/lsf-burst

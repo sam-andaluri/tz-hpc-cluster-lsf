@@ -1,0 +1,17 @@
+{
+    "name": "TechZone Burst LSF cluster",
+    "location": "us-south",
+    "repo" : "https://github.ibm.com/andaluri/techzone-lsf-v2.1.0/tree/main",
+    "cluster_name" : "BurstCluster",
+    "cluster_prefix" : "burst",
+    "zone": "us-south-2",
+    "ssh_key_name" : "lsf-burst",
+    "vpc_name": "tz-test-1",
+    "resource_group" : "tz-test",
+    "hyperthreading_enabled" : "false",
+    "management_node_count": "1",
+    "worker_node_min_count" : "0",
+    "worker_node_max_count" : "3",
+    "volume_capacity" : "300",
+    "volume_iops" : "3000"
+}
