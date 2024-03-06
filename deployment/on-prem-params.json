@@ -1,7 +1,7 @@
 {
     "name": "TechZone OnPrem LSF cluster",
     "location": "us-south",
-    "repo" : "https://github.ibm.com/andaluri/techzone-lsf-v2.1.0/tree/main",
+    "repo" : "https://github.com/sam-andaluri/tz-hpc-cluster-lsf/tree/main",
     "cluster_name" : "OnPremCluster",
     "cluster_prefix" : "on-prem",
     "zone": "us-south-1",

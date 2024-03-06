@@ -143,6 +143,7 @@ data "template_file" "management_host_user_data" {
     enable_app_center             = var.enable_app_center
     app_center_gui_pwd            = var.app_center_gui_pwd
     app_center_db_pwd             = var.app_center_db_pwd
+    app_center_url                = ibm_cis_dns_record.appcenter_a_record.name   
   }
 }
 

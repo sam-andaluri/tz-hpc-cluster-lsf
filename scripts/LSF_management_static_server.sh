@@ -371,6 +371,9 @@ if [ "$enable_app_center" = true ]; then
     if (( $(ls -ltr /opt/IBM/lsf_app_center_cloud_packages/ | grep "pac" | wc -l) > 0 )); then
         echo "Application Center package found !!" >> $logfile
         sleep 30
+        ip=`hostname -i | cut -d" " -f1`
+        hst=`hostname`
+        sed "s/${ip} ${hst}/${ip} ${hst} ${app_center_url}/g" /etc/hosts > /etc/hosts
         su - lsfadmin -c "lsadmin ckconfig -v"
         echo ${app_center_gui_pwd} | sudo passwd --stdin lsfadmin
         sed -i '$i\\ALLOW_EVENT_TYPE=JOB_NEW JOB_STATUS JOB_FINISH2 JOB_START JOB_EXECUTE JOB_EXT_MSG JOB_SIGNAL JOB_REQUEUE JOB_MODIFY2 JOB_SWITCH METRIC_LOG' $LSF_ENVDIR/lsbatch/"$cluster_name"/configdir/lsb.params
